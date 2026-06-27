@@ -1,0 +1,523 @@
+openapi: 3.0.3
+info:
+  title: Housework Task API
+  version: 1.0.0
+  description: REST API for tracking one-off and recurring house chore tasks.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+servers:
+  - url: /
+    description: Default API server
+security: []
+tags:
+  - name: Tasks
+    description: Create, read, update, delete, and query housework tasks.
+paths:
+  /tasks:
+    get:
+      tags:
+        - Tasks
+      operationId: listTasks
+      summary: List tasks
+      description: Returns tasks filtered by end goal date, completion status, and recurrence type.
+      parameters:
+        - $ref: "#/components/parameters/EndGoalDate"
+        - $ref: "#/components/parameters/EndGoalDateFrom"
+        - $ref: "#/components/parameters/EndGoalDateTo"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/Repeating"
+      responses:
+        "200":
+          description: Matching tasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+              examples:
+                filteredByDate:
+                  summary: Tasks due on one date
+                  value:
+                    data:
+                      - id: 9f7f0c87-5506-4df7-9f4a-8bdf9735de6b
+                        title: Clean kitchen counters
+                        description: Wipe counters and stovetop.
+                        status: pending
+                        endGoalDate: "2026-07-03"
+                        repeating: true
+                        recurrence:
+                          frequency: weekly
+                          interval: 1
+                          daysOfWeek:
+                            - friday
+                        createdAt: "2026-06-26T18:12:00Z"
+                        updatedAt: "2026-06-26T18:12:00Z"
+                    meta:
+                      count: 1
+        "400":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags:
+        - Tasks
+      operationId: createTask
+      summary: Create a task
+      description: Creates a one-off or repeating housework task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+            examples:
+              oneOff:
+                summary: One-off task
+                value:
+                  title: Replace HVAC filter
+                  description: Use 20x25x1 filter from garage shelf.
+                  endGoalDate: "2026-07-01"
+                  repeating: false
+              everyOtherFriday:
+                summary: Repeating task every other Friday
+                value:
+                  title: Clean bathrooms
+                  endGoalDate: "2026-07-03"
+                  repeating: true
+                  recurrence:
+                    frequency: weekly
+                    interval: 2
+                    daysOfWeek:
+                      - friday
+        description: Task details. Repeating tasks require a recurrence rule.
+      responses:
+        "201":
+          description: Task created.
+          headers:
+            Location:
+              description: URL for the created task.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+  /tasks/{taskId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags:
+        - Tasks
+      operationId: getTask
+      summary: Get a task
+      description: Returns one task by ID.
+      responses:
+        "200":
+          description: Task found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags:
+        - Tasks
+      operationId: replaceTask
+      summary: Replace a task
+      description: Replaces all editable task fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+            examples:
+              updateRepeating:
+                summary: Replace with repeating task details
+                value:
+                  title: Clean bathrooms
+                  description: Full sink, shower, mirror, and toilet clean.
+                  status: pending
+                  endGoalDate: "2026-07-17"
+                  repeating: true
+                  recurrence:
+                    frequency: weekly
+                    interval: 2
+                    daysOfWeek:
+                      - friday
+      responses:
+        "200":
+          description: Task replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - Tasks
+      operationId: updateTask
+      summary: Partially update a task
+      description: Updates provided task fields while leaving omitted fields unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchTaskRequest"
+            examples:
+              completeTask:
+                summary: Mark a task complete
+                value:
+                  status: completed
+                  completedAt: "2026-07-03T20:25:00Z"
+      responses:
+        "200":
+          description: Task updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags:
+        - Tasks
+      operationId: deleteTask
+      summary: Delete a task
+      description: Deletes a one-off task or the recurring task series definition.
+      responses:
+        "204":
+          description: Task deleted. The response body is empty.
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      description: Unique task identifier.
+      schema:
+        type: string
+        format: uuid
+    EndGoalDate:
+      name: endGoalDate
+      in: query
+      required: false
+      description: Return tasks with this exact end goal date.
+      schema:
+        type: string
+        format: date
+    EndGoalDateFrom:
+      name: endGoalDateFrom
+      in: query
+      required: false
+      description: Return tasks with an end goal date on or after this date.
+      schema:
+        type: string
+        format: date
+    EndGoalDateTo:
+      name: endGoalDateTo
+      in: query
+      required: false
+      description: Return tasks with an end goal date on or before this date.
+      schema:
+        type: string
+        format: date
+    Status:
+      name: status
+      in: query
+      required: false
+      description: Return tasks with this completion status.
+      schema:
+        $ref: "#/components/schemas/TaskStatus"
+    Repeating:
+      name: repeating
+      in: query
+      required: false
+      description: Return only repeating or one-off tasks.
+      schema:
+        type: boolean
+  responses:
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: validation_error
+              message: recurrence is required when repeating is true.
+              details:
+                field: recurrence
+    NotFound:
+      description: Task was not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: not_found
+              message: Task not found.
+  schemas:
+    Task:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - endGoalDate
+        - repeating
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique task identifier.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Short task name.
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+          description: Optional task notes.
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        endGoalDate:
+          type: string
+          format: date
+          description: Date by which this task occurrence should be completed.
+        repeating:
+          type: boolean
+          description: Whether this task follows a recurrence rule.
+        recurrence:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/RecurrenceRule"
+          nullable: true
+          description: Required when repeating is true, otherwise null or omitted.
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the task was completed.
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the task was created.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the task was last updated.
+    CreateTaskRequest:
+      type: object
+      required:
+        - title
+        - endGoalDate
+        - repeating
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        endGoalDate:
+          type: string
+          format: date
+        repeating:
+          type: boolean
+        recurrence:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/RecurrenceRule"
+          nullable: true
+      description: For repeating tasks, recurrence is required and endGoalDate must fall on the recurrence cadence.
+    UpdateTaskRequest:
+      type: object
+      required:
+        - title
+        - status
+        - endGoalDate
+        - repeating
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        endGoalDate:
+          type: string
+          format: date
+        repeating:
+          type: boolean
+        recurrence:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/RecurrenceRule"
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      description: Full replacement payload. For repeating tasks, recurrence is required and endGoalDate must fall on the recurrence cadence.
+    PatchTaskRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        endGoalDate:
+          type: string
+          format: date
+        repeating:
+          type: boolean
+        recurrence:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/RecurrenceRule"
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      description: Partial update payload. If repeating is true after the update, recurrence is required and endGoalDate must fall on the recurrence cadence.
+    TaskListResponse:
+      type: object
+      required:
+        - data
+        - meta
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        meta:
+          type: object
+          required:
+            - count
+          properties:
+            count:
+              type: integer
+              minimum: 0
+              description: Number of tasks returned.
+    TaskResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/Task"
+    TaskStatus:
+      type: string
+      enum:
+        - pending
+        - completed
+      description: Whether the task is still pending or has been completed.
+    RecurrenceRule:
+      type: object
+      required:
+        - frequency
+        - interval
+      properties:
+        frequency:
+          type: string
+          enum:
+            - daily
+            - weekly
+            - monthly
+            - yearly
+          description: Base recurrence unit.
+        interval:
+          type: integer
+          minimum: 1
+          description: Number of frequency units between occurrences. For example, interval 2 with weekly frequency means every other week.
+        daysOfWeek:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/DayOfWeek"
+          description: Weekdays used for weekly cadences, such as every other Friday.
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+          description: Calendar day used for monthly cadences.
+        weekOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Ordinal week used with dayOfWeek for monthly rules, such as the second Saturday.
+        monthOfYear:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: Month used for yearly cadences.
+        startsOn:
+          type: string
+          format: date
+          description: First date in the recurrence schedule. Defaults to the task endGoalDate when omitted.
+        endsOn:
+          type: string
+          format: date
+          nullable: true
+          description: Optional final date for the recurrence schedule.
+      description: Recurrence definition. Each generated end goal date must match this rule.
+    DayOfWeek:
+      type: string
+      enum:
+        - monday
+        - tuesday
+        - wednesday
+        - thursday
+        - friday
+        - saturday
+        - sunday
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
