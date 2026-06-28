@@ -1,0 +1,83 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  color: var(--color-text);
+  background: var(--color-background);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100svh;
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  min-height: var(--touch-target-min);
+  font: inherit;
+}
+
+:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
+}
+
+#root {
+  min-height: 100svh;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100svh;
+  align-items: center;
+  padding: var(--space-4);
+}
+
+.app-shell__panel {
+  width: min(100%, 38rem);
+  margin: 0 auto;
+  padding: var(--space-6);
+  border: var(--border-width) solid var(--color-ui);
+  border-radius: var(--border-radius);
+  background: color-mix(in srgb, var(--color-background) 86%, white);
+}
+
+.app-shell__eyebrow {
+  margin: 0 0 var(--space-2);
+  color: var(--color-emphasis);
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+}
+
+p {
+  max-width: 60ch;
+  margin: 0;
+}
+
+@media (min-width: 48rem) {
+  .app-shell {
+    padding: var(--space-8);
+  }
+
+  .app-shell__panel {
+    padding: var(--space-8);
+  }
+}
