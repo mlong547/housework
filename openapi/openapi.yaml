@@ -11,9 +11,42 @@ servers:
     description: Default API server
 security: []
 tags:
+  - name: Auth
+    description: Authenticate users with Google and issue app session tokens.
   - name: Tasks
     description: Create, read, update, delete, and query housework tasks.
 paths:
+  /auth/google:
+    post:
+      tags:
+        - Auth
+      operationId: loginWithGoogle
+      summary: Log in with Google
+      description: Verifies a Google ID token from a frontend sign-in flow and returns an app bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleLoginRequest"
+            examples:
+              googleCredential:
+                summary: Google credential token
+                value:
+                  credential: google-id-token-from-google
+      responses:
+        "200":
+          description: Login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
   /tasks:
     get:
       tags:
@@ -21,6 +54,8 @@ paths:
       operationId: listTasks
       summary: List tasks
       description: Returns tasks filtered by end goal date, completion status, and recurrence type.
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/EndGoalDate"
         - $ref: "#/components/parameters/EndGoalDateFrom"
@@ -56,12 +91,18 @@ paths:
                       count: 1
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
     post:
       tags:
         - Tasks
       operationId: createTask
       summary: Create a task
       description: Creates a one-off or repeating housework task.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -103,6 +144,10 @@ paths:
                 $ref: "#/components/schemas/TaskResponse"
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
   /tasks/{taskId}:
     parameters:
       - $ref: "#/components/parameters/TaskId"
@@ -112,6 +157,8 @@ paths:
       operationId: getTask
       summary: Get a task
       description: Returns one task by ID.
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Task found.
@@ -121,12 +168,18 @@ paths:
                 $ref: "#/components/schemas/TaskResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
     put:
       tags:
         - Tasks
       operationId: replaceTask
       summary: Replace a task
       description: Replaces all editable task fields.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -158,12 +211,18 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
     patch:
       tags:
         - Tasks
       operationId: updateTask
       summary: Partially update a task
       description: Updates provided task fields while leaving omitted fields unchanged.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -187,18 +246,33 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
     delete:
       tags:
         - Tasks
       operationId: deleteTask
       summary: Delete a task
       description: Deletes a one-off task or the recurring task series definition.
+      security:
+        - bearerAuth: []
       responses:
         "204":
           description: Task deleted. The response body is empty.
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ConfigurationError"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: signed app session token
   parameters:
     TaskId:
       name: taskId
@@ -269,7 +343,72 @@ components:
             error:
               code: not_found
               message: Task not found.
+    Unauthorized:
+      description: Authentication failed or was not provided.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: unauthorized
+              message: Bearer token is required.
+    ConfigurationError:
+      description: Required server authentication configuration is missing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: config_error
+              message: GOOGLE_CLIENT_ID is not configured.
   schemas:
+    GoogleLoginRequest:
+      type: object
+      properties:
+        credential:
+          type: string
+          description: Google ID token returned by the frontend Google sign-in flow.
+        idToken:
+          type: string
+          description: Alias for credential.
+      description: Provide either credential or idToken.
+    AuthResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          required:
+            - token
+            - user
+          properties:
+            token:
+              type: string
+              description: Signed app session token for Authorization bearer usage.
+            user:
+              $ref: "#/components/schemas/User"
+    User:
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          format: uri
+          nullable: true
     Task:
       type: object
       required:

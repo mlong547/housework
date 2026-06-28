@@ -5,8 +5,9 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional, Union
 
-from flask import Blueprint, Response, jsonify, request, url_for
+from flask import Blueprint, Response, g, jsonify, request, url_for
 
+from housework_api.auth import require_auth
 from housework_api.db import get_db
 
 tasks_bp = Blueprint("tasks", __name__)
@@ -29,8 +30,11 @@ DateOrError = Union[date, ErrorResult]
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
 
 
@@ -43,9 +47,7 @@ def error_response(
     return jsonify(body), status_code
 
 
-def validation_error(
-    message: str, field: Optional[str] = None
-) -> ErrorResult:
+def validation_error(message: str, field: Optional[str] = None) -> ErrorResult:
     details = {"field": field} if field else None
     return error_response(400, "validation_error", message, details)
 
@@ -302,7 +304,7 @@ def validate_payload(
 
 
 def validate_task_state(
-    state: dict[str, Any]
+    state: dict[str, Any],
 ) -> Union[tuple[dict[str, Any], None], tuple[None, ErrorResult]]:
     repeating = state.get("repeating")
     recurrence = state.get("recurrence")
@@ -344,14 +346,26 @@ def row_to_task(row: Any) -> dict[str, Any]:
     }
 
 
+def current_user_id() -> str:
+    return g.current_user["id"]
+
+
 def fetch_task(task_id: str) -> Any:
-    return get_db().execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return (
+        get_db()
+        .execute(
+            "SELECT * FROM tasks WHERE id = ? AND user_id = ?",
+            (task_id, current_user_id()),
+        )
+        .fetchone()
+    )
 
 
 @tasks_bp.get("/tasks")
+@require_auth
 def list_tasks() -> ErrorResult:
-    filters: list[str] = []
-    values: list[Any] = []
+    filters: list[str] = ["user_id = ?"]
+    values: list[Any] = [current_user_id()]
 
     for name in ("endGoalDate", "endGoalDateFrom", "endGoalDateTo"):
         value = request.args.get(name)
@@ -400,6 +414,7 @@ def list_tasks() -> ErrorResult:
 
 
 @tasks_bp.post("/tasks")
+@require_auth
 def create_task() -> ErrorResult:
     payload, error = validate_payload(request.get_json(silent=True), partial=False)
     if error:
@@ -416,12 +431,14 @@ def create_task() -> ErrorResult:
     get_db().execute(
         """
         INSERT INTO tasks (
-            id, title, description, status, end_goal_date, repeating, recurrence,
+            id, user_id, title, description, status, end_goal_date, repeating,
+            recurrence,
             completed_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             task_id,
+            current_user_id(),
             state["title"],
             state.get("description"),
             state["status"],
@@ -442,6 +459,7 @@ def create_task() -> ErrorResult:
 
 
 @tasks_bp.get("/tasks/<task_id>")
+@require_auth
 def get_task(task_id: str) -> ErrorResult:
     row = fetch_task(task_id)
     if row is None:
@@ -450,6 +468,7 @@ def get_task(task_id: str) -> ErrorResult:
 
 
 @tasks_bp.put("/tasks/<task_id>")
+@require_auth
 def replace_task(task_id: str) -> ErrorResult:
     if fetch_task(task_id) is None:
         return not_found()
@@ -473,6 +492,7 @@ def replace_task(task_id: str) -> ErrorResult:
            SET title = ?, description = ?, status = ?, end_goal_date = ?,
                repeating = ?, recurrence = ?, completed_at = ?, updated_at = ?
          WHERE id = ?
+           AND user_id = ?
         """,
         (
             state["title"],
@@ -484,6 +504,7 @@ def replace_task(task_id: str) -> ErrorResult:
             state.get("completedAt"),
             now,
             task_id,
+            current_user_id(),
         ),
     )
     get_db().commit()
@@ -491,6 +512,7 @@ def replace_task(task_id: str) -> ErrorResult:
 
 
 @tasks_bp.patch("/tasks/<task_id>")
+@require_auth
 def update_task(task_id: str) -> ErrorResult:
     row = fetch_task(task_id)
     if row is None:
@@ -515,6 +537,7 @@ def update_task(task_id: str) -> ErrorResult:
            SET title = ?, description = ?, status = ?, end_goal_date = ?,
                repeating = ?, recurrence = ?, completed_at = ?, updated_at = ?
          WHERE id = ?
+           AND user_id = ?
         """,
         (
             state["title"],
@@ -526,6 +549,7 @@ def update_task(task_id: str) -> ErrorResult:
             state.get("completedAt"),
             now,
             task_id,
+            current_user_id(),
         ),
     )
     get_db().commit()
@@ -533,9 +557,13 @@ def update_task(task_id: str) -> ErrorResult:
 
 
 @tasks_bp.delete("/tasks/<task_id>")
+@require_auth
 def delete_task(task_id: str) -> Union[ErrorResult, Response]:
     if fetch_task(task_id) is None:
         return not_found()
-    get_db().execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    get_db().execute(
+        "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+        (task_id, current_user_id()),
+    )
     get_db().commit()
     return Response(status=204)

@@ -11,6 +11,8 @@ This folder contains an OpenAPI v3 schema for a REST API that tracks recurring a
 
 The basic resource is a task. A task has an `endGoalDate`, a `status`, and a `repeating` flag.
 
+Task routes require an app bearer token returned by `POST /auth/google`.
+
 One-off tasks set `repeating` to `false` and omit `recurrence` or set it to `null`.
 
 Repeating tasks set `repeating` to `true` and include a `recurrence` rule. The task's `endGoalDate` must fall on that recurrence cadence. For example, "every other Friday" is represented as:
@@ -25,9 +27,53 @@ Repeating tasks set `repeating` to `true` and include a `recurrence` rule. The t
 
 ## Routes
 
+### `POST /auth/google`
+
+Verifies a Google ID token from a future frontend Google sign-in flow and returns an app session token.
+
+Request body:
+
+```json
+{
+  "credential": "google-id-token-from-google"
+}
+```
+
+Request fields:
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `credential` | string | Conditional | Google ID token returned by the frontend sign-in flow. |
+| `idToken` | string | Conditional | Alias for `credential`. |
+
+Response body:
+
+```json
+{
+  "data": {
+    "token": "signed-app-session-token",
+    "user": {
+      "id": "9f7f0c87-5506-4df7-9f4a-8bdf9735de6b",
+      "email": "person@example.com",
+      "name": "Person Example",
+      "picture": "https://example.com/person.png"
+    }
+  }
+}
+```
+
+Status codes:
+
+- `200` when login succeeds.
+- `400` with `ErrorResponse` when the body is invalid.
+- `401` with `ErrorResponse` when the Google token is invalid.
+- `500` with `ErrorResponse` when server authentication configuration is missing.
+
 ### `GET /tasks`
 
 Lists tasks. Use this route to query tasks by end goal date and to see completed and pending tasks.
+
+Authorization: `Authorization: Bearer <token>`.
 
 Query parameters:
 
@@ -76,6 +122,8 @@ Error responses:
 ### `POST /tasks`
 
 Creates a one-off or repeating task.
+
+Authorization: `Authorization: Bearer <token>`.
 
 Request body:
 
@@ -135,6 +183,8 @@ Status codes:
 
 Returns one task by ID.
 
+Authorization: `Authorization: Bearer <token>`.
+
 Path parameters:
 
 | Name | Type | Required | Description |
@@ -169,6 +219,8 @@ Error responses:
 ### `PUT /tasks/{taskId}`
 
 Replaces all editable fields on a task.
+
+Authorization: `Authorization: Bearer <token>`.
 
 Path parameters:
 
@@ -217,6 +269,8 @@ Error responses:
 
 Updates selected task fields while leaving omitted fields unchanged. This is the simplest way to mark a task complete or pending.
 
+Authorization: `Authorization: Bearer <token>`.
+
 Path parameters:
 
 | Name | Type | Required | Description |
@@ -254,6 +308,8 @@ Error responses:
 ### `DELETE /tasks/{taskId}`
 
 Deletes a one-off task or a recurring task series definition.
+
+Authorization: `Authorization: Bearer <token>`.
 
 Path parameters:
 
