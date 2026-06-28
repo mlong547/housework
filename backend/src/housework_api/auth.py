@@ -210,3 +210,7 @@ def require_auth(view: F) -> F:
         return view(*args, **kwargs)
 
     return cast(F, wrapped)
+
+
+def current_user_id() -> str:
+    return cast(str, g.current_user["id"])
