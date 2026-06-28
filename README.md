@@ -33,4 +33,11 @@ pytest
 
 The current API surface is:
 
-- `GET /task/<id>` returns `{"id": "<id>"}`
+- `GET /tasks` lists tasks with optional end goal date, status, and recurrence filters.
+- `POST /tasks` creates a one-off or recurring task.
+- `GET /tasks/<id>` returns one task.
+- `PUT /tasks/<id>` replaces a task.
+- `PATCH /tasks/<id>` partially updates a task, including completion status.
+- `DELETE /tasks/<id>` deletes a task.
+
+See `openapi/openapi.yaml` for the full API contract.
