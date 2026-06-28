@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 """
 
+INDEX_SCHEMA = """
+CREATE INDEX IF NOT EXISTS idx_tasks_user_status_repeating_end_goal_created
+    ON tasks (user_id, status, repeating, end_goal_date, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_user_end_goal_date
+    ON tasks (user_id, end_goal_date, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_user_status
+    ON tasks (user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_user_repeating
+    ON tasks (user_id, repeating);
+"""
+
 LEGACY_USER_ID = "legacy-local-user"
 
 
@@ -40,6 +54,13 @@ def table_columns(connection: sqlite3.Connection, table: str) -> dict[str, Any]:
         row["name"]: row
         for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
     }
+
+
+def verify_foreign_keys_enabled(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA foreign_keys = ON")
+    enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    if enabled != 1:
+        raise RuntimeError("SQLite foreign key enforcement is not enabled.")
 
 
 def seed_legacy_user(connection: sqlite3.Connection) -> None:
@@ -70,15 +91,40 @@ def migrate_tasks_for_auth(connection: sqlite3.Connection) -> None:
         return
 
     has_user_id = "user_id" in columns
-    user_id_column = table_columns(connection, "tasks").get("user_id")
+    task_columns = table_columns(connection, "tasks")
+    user_id_column = task_columns.get("user_id")
     user_id_required = bool(user_id_column and user_id_column["notnull"])
     orphaned_tasks = 0
+    missing_owner_tasks = 0
+    has_owner_fk = False
     if has_user_id:
         orphaned_tasks = connection.execute(
             "SELECT COUNT(*) AS count FROM tasks WHERE user_id IS NULL"
         ).fetchone()["count"]
+        missing_owner_tasks = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+              FROM tasks
+             WHERE user_id IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1 FROM users WHERE users.id = tasks.user_id
+               )
+            """
+        ).fetchone()["count"]
+        has_owner_fk = any(
+            row["from"] == "user_id"
+            and row["table"] == "users"
+            and row["to"] == "id"
+            for row in connection.execute("PRAGMA foreign_key_list(tasks)").fetchall()
+        )
 
-    if has_user_id and user_id_required and orphaned_tasks == 0:
+    if (
+        has_user_id
+        and user_id_required
+        and has_owner_fk
+        and orphaned_tasks == 0
+        and missing_owner_tasks == 0
+    ):
         return
 
     seed_legacy_user(connection)
@@ -100,9 +146,16 @@ def migrate_tasks_for_auth(connection: sqlite3.Connection) -> None:
         );
         """
     )
-    user_id_expression = (
-        "COALESCE(user_id, ?)" if has_user_id else "?"
-    )
+    user_id_expression = "?"
+    if has_user_id:
+        user_id_expression = """
+            CASE
+                WHEN user_id IS NOT NULL
+                 AND EXISTS (SELECT 1 FROM users WHERE users.id = tasks_legacy.user_id)
+                THEN user_id
+                ELSE ?
+            END
+        """
     connection.execute(
         f"""
         INSERT INTO tasks (
@@ -119,6 +172,10 @@ def migrate_tasks_for_auth(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE tasks_legacy")
 
 
+def ensure_task_indexes(connection: sqlite3.Connection) -> None:
+    connection.executescript(INDEX_SCHEMA)
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
         database = current_app.config["DATABASE"]
@@ -126,9 +183,10 @@ def get_db() -> sqlite3.Connection:
             Path(database).parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(database)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
+        verify_foreign_keys_enabled(connection)
         connection.executescript(SCHEMA)
         migrate_tasks_for_auth(connection)
+        ensure_task_indexes(connection)
         connection.commit()
         g.db = connection
     return g.db

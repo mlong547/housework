@@ -5,10 +5,18 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional, Union
 
-from flask import Blueprint, Response, g, jsonify, request, url_for
+from flask import Blueprint, Response, jsonify, request, url_for
 
-from housework_api.auth import require_auth
+from housework_api.auth import current_user_id, require_auth
 from housework_api.db import get_db
+from housework_api.tasks_repository import (
+    delete_task_for_user,
+    fetch_task_for_user,
+    insert_task_for_user,
+    list_tasks_for_user,
+    replace_task_for_user,
+    update_task_for_user,
+)
 
 tasks_bp = Blueprint("tasks", __name__)
 
@@ -346,26 +354,14 @@ def row_to_task(row: Any) -> dict[str, Any]:
     }
 
 
-def current_user_id() -> str:
-    return g.current_user["id"]
-
-
 def fetch_task(task_id: str) -> Any:
-    return (
-        get_db()
-        .execute(
-            "SELECT * FROM tasks WHERE id = ? AND user_id = ?",
-            (task_id, current_user_id()),
-        )
-        .fetchone()
-    )
+    return fetch_task_for_user(current_user_id(), task_id)
 
 
 @tasks_bp.get("/tasks")
 @require_auth
 def list_tasks() -> ErrorResult:
-    filters: list[str] = ["user_id = ?"]
-    values: list[Any] = [current_user_id()]
+    filters: dict[str, Any] = {}
 
     for name in ("endGoalDate", "endGoalDateFrom", "endGoalDateTo"):
         value = request.args.get(name)
@@ -373,42 +369,33 @@ def list_tasks() -> ErrorResult:
             parsed = parse_date(value, name)
             if not isinstance(parsed, date):
                 return parsed
+            filters[name] = value
 
     end_goal_date = request.args.get("endGoalDate")
     if end_goal_date:
-        filters.append("end_goal_date = ?")
-        values.append(end_goal_date)
+        filters["endGoalDate"] = end_goal_date
 
     end_goal_date_from = request.args.get("endGoalDateFrom")
     if end_goal_date_from:
-        filters.append("end_goal_date >= ?")
-        values.append(end_goal_date_from)
+        filters["endGoalDateFrom"] = end_goal_date_from
 
     end_goal_date_to = request.args.get("endGoalDateTo")
     if end_goal_date_to:
-        filters.append("end_goal_date <= ?")
-        values.append(end_goal_date_to)
+        filters["endGoalDateTo"] = end_goal_date_to
 
     status = request.args.get("status")
     if status is not None:
         if status not in STATUSES:
             return validation_error("status must be pending or completed.", "status")
-        filters.append("status = ?")
-        values.append(status)
+        filters["status"] = status
 
     repeating = request.args.get("repeating")
     if repeating is not None:
         if repeating not in {"true", "false"}:
             return validation_error("repeating must be true or false.", "repeating")
-        filters.append("repeating = ?")
-        values.append(1 if repeating == "true" else 0)
+        filters["repeating"] = repeating == "true"
 
-    query = "SELECT * FROM tasks"
-    if filters:
-        query += " WHERE " + " AND ".join(filters)
-    query += " ORDER BY end_goal_date, created_at"
-
-    rows = get_db().execute(query, values).fetchall()
+    rows = list_tasks_for_user(current_user_id(), filters)
     tasks = [row_to_task(row) for row in rows]
     return jsonify({"data": tasks, "meta": {"count": len(tasks)}}), 200
 
@@ -428,28 +415,7 @@ def create_task() -> ErrorResult:
 
     task_id = str(uuid.uuid4())
     now = utc_now()
-    get_db().execute(
-        """
-        INSERT INTO tasks (
-            id, user_id, title, description, status, end_goal_date, repeating,
-            recurrence,
-            completed_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            task_id,
-            current_user_id(),
-            state["title"],
-            state.get("description"),
-            state["status"],
-            state["endGoalDate"],
-            int(state["repeating"]),
-            json.dumps(state["recurrence"]) if state["recurrence"] else None,
-            state.get("completedAt"),
-            now,
-            now,
-        ),
-    )
+    insert_task_for_user(current_user_id(), task_id, state, now)
     get_db().commit()
 
     task = row_to_task(fetch_task(task_id))
@@ -486,27 +452,7 @@ def replace_task(task_id: str) -> ErrorResult:
     assert state is not None
 
     now = utc_now()
-    get_db().execute(
-        """
-        UPDATE tasks
-           SET title = ?, description = ?, status = ?, end_goal_date = ?,
-               repeating = ?, recurrence = ?, completed_at = ?, updated_at = ?
-         WHERE id = ?
-           AND user_id = ?
-        """,
-        (
-            state["title"],
-            state.get("description"),
-            state["status"],
-            state["endGoalDate"],
-            int(state["repeating"]),
-            json.dumps(state["recurrence"]) if state["recurrence"] else None,
-            state.get("completedAt"),
-            now,
-            task_id,
-            current_user_id(),
-        ),
-    )
+    replace_task_for_user(current_user_id(), task_id, state, now)
     get_db().commit()
     return jsonify({"data": row_to_task(fetch_task(task_id))}), 200
 
@@ -531,27 +477,7 @@ def update_task(task_id: str) -> ErrorResult:
     assert state is not None
 
     now = utc_now()
-    get_db().execute(
-        """
-        UPDATE tasks
-           SET title = ?, description = ?, status = ?, end_goal_date = ?,
-               repeating = ?, recurrence = ?, completed_at = ?, updated_at = ?
-         WHERE id = ?
-           AND user_id = ?
-        """,
-        (
-            state["title"],
-            state.get("description"),
-            state["status"],
-            state["endGoalDate"],
-            int(state["repeating"]),
-            json.dumps(state["recurrence"]) if state["recurrence"] else None,
-            state.get("completedAt"),
-            now,
-            task_id,
-            current_user_id(),
-        ),
-    )
+    update_task_for_user(current_user_id(), task_id, state, now)
     get_db().commit()
     return jsonify({"data": row_to_task(fetch_task(task_id))}), 200
 
@@ -561,9 +487,6 @@ def update_task(task_id: str) -> ErrorResult:
 def delete_task(task_id: str) -> Union[ErrorResult, Response]:
     if fetch_task(task_id) is None:
         return not_found()
-    get_db().execute(
-        "DELETE FROM tasks WHERE id = ? AND user_id = ?",
-        (task_id, current_user_id()),
-    )
+    delete_task_for_user(current_user_id(), task_id)
     get_db().commit()
     return Response(status=204)
