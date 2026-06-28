@@ -1,4 +1,4 @@
-name: Python tests
+name: Backend CI
 
 on:
   pull_request:
@@ -7,8 +7,35 @@ on:
       - main
 
 jobs:
-  pytest:
-    name: pytest (${{ matrix.python-version }})
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run Ruff
+        run: python -m ruff check .
+
+  test:
+    name: Pytest (${{ matrix.python-version }})
     runs-on: ubuntu-latest
 
     strategy:
