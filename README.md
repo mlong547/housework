@@ -25,6 +25,10 @@ Run the API locally:
 flask --app housework_api run --debug
 ```
 
+The backend expects Google login and session settings in the environment:
+`GOOGLE_CLIENT_ID`, `APP_SECRET_KEY`, optional `DATABASE`, and optional
+`SESSION_MAX_AGE_SECONDS`.
+
 Run the tests:
 
 ```sh
@@ -33,6 +37,7 @@ pytest
 
 The current API surface is:
 
+- `POST /auth/google` verifies a Google ID token and returns an app bearer token.
 - `GET /tasks` lists tasks with optional end goal date, status, and recurrence filters.
 - `POST /tasks` creates a one-off or recurring task.
 - `GET /tasks/<id>` returns one task.

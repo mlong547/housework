@@ -331,3 +331,40 @@ def test_list_rejects_invalid_filters(client):
 
     assert response.status_code == 400
     assert response.get_json()["error"]["details"]["field"] == "status"
+
+
+def test_tasks_require_bearer_token(anonymous_client):
+    response = anonymous_client.get("/tasks")
+
+    assert response.status_code == 401
+    assert response.get_json()["error"]["code"] == "unauthorized"
+
+
+def test_tasks_reject_invalid_bearer_token(anonymous_client):
+    response = anonymous_client.get(
+        "/tasks",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["error"]["code"] == "unauthorized"
+
+
+def test_tasks_are_isolated_by_authenticated_user(client, make_auth_client):
+    created = create_task(client, title="User A task")
+    other_client, _ = make_auth_client(
+        google_sub="google-sub-2",
+        email="other@example.com",
+    )
+
+    list_response = other_client.get("/tasks")
+    get_response = other_client.get(f"/tasks/{created['id']}")
+    patch_response = other_client.patch(
+        f"/tasks/{created['id']}",
+        json={"title": "Changed by user B"},
+    )
+
+    assert list_response.status_code == 200
+    assert list_response.get_json() == {"data": [], "meta": {"count": 0}}
+    assert get_response.status_code == 404
+    assert patch_response.status_code == 404
