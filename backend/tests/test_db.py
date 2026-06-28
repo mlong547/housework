@@ -49,3 +49,18 @@ def test_legacy_tasks_are_backfilled_to_legacy_user(tmp_path):
     assert task["user_id"] == LEGACY_USER_ID
     assert legacy_user["email"] == "legacy-local-user@example.invalid"
     assert user_id_column["notnull"] == 1
+
+
+def test_database_enforces_foreign_keys_and_task_indexes(app):
+    with app.app_context():
+        db = get_db()
+        foreign_keys = db.execute("PRAGMA foreign_keys").fetchone()[0]
+        indexes = {
+            row["name"] for row in db.execute("PRAGMA index_list(tasks)").fetchall()
+        }
+
+    assert foreign_keys == 1
+    assert "idx_tasks_user_status_repeating_end_goal_created" in indexes
+    assert "idx_tasks_user_end_goal_date" in indexes
+    assert "idx_tasks_user_status" in indexes
+    assert "idx_tasks_user_repeating" in indexes
