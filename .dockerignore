@@ -1,0 +1,13 @@
+.git
+.github
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+**/*.pyc
+backend/.venv
+backend/dist
+frontend/dist
+frontend/node_modules
+frontend/coverage
+*.sqlite3
+*.log

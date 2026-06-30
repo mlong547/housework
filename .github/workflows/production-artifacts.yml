@@ -1,0 +1,115 @@
+name: Production Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional release tag. Defaults to prod-<run number>-<short sha>.
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-artifacts:
+    name: Build and draft release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            tag="${{ inputs.release_tag }}"
+          else
+            tag="prod-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          fi
+          echo "RELEASE_TAG=${tag}" >> "${GITHUB_ENV}"
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install Yarn
+        run: npm install --global yarn@1.22.22
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Run frontend checks
+        working-directory: frontend
+        run: |
+          yarn lint
+          yarn test:ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: yarn build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Run backend checks
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m ruff check .
+          python -m pytest
+
+      - name: Build backend wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir artifacts/backend-wheel backend
+
+      - name: Validate Compose configuration
+        run: docker compose --env-file .env.example config
+
+      - name: Build production Docker images
+        run: |
+          docker build --file backend/Dockerfile --tag housework-backend:local --tag "housework-backend:${RELEASE_TAG}" backend
+          docker build --file frontend/Dockerfile --tag housework-web:local --tag "housework-web:${RELEASE_TAG}" .
+
+      - name: Package artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/release artifacts/deploy-bundle
+
+          (cd frontend/dist && zip -r ../../artifacts/release/housework-frontend-dist.zip .)
+          (cd artifacts/backend-wheel && zip -r ../release/housework-backend-wheel.zip .)
+
+          docker save --output artifacts/housework-backend-image.tar housework-backend:local
+          zip -j artifacts/release/housework-backend-image.zip artifacts/housework-backend-image.tar
+
+          docker save --output artifacts/housework-web-image.tar housework-web:local
+          zip -j artifacts/release/housework-web-image.zip artifacts/housework-web-image.tar
+
+          cp compose.yaml .env.example .dockerignore artifacts/deploy-bundle/
+          mkdir -p artifacts/deploy-bundle/backend artifacts/deploy-bundle/frontend artifacts/deploy-bundle/deploy/caddy artifacts/deploy-bundle/docs
+          cp backend/Dockerfile artifacts/deploy-bundle/backend/
+          cp frontend/Dockerfile artifacts/deploy-bundle/frontend/
+          cp deploy/caddy/Caddyfile artifacts/deploy-bundle/deploy/caddy/
+          cp docs/PRODUCTION.md artifacts/deploy-bundle/docs/
+          (cd artifacts/deploy-bundle && zip -r ../release/housework-docker-deploy.zip .)
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" artifacts/release/*.zip \
+            --draft \
+            --target "${GITHUB_SHA}" \
+            --title "Housework production artifacts ${RELEASE_TAG}" \
+            --notes "Production artifacts built from ${GITHUB_SHA}."
