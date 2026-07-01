@@ -1,0 +1,17 @@
+:80 {
+	encode zstd gzip
+
+	@backend {
+		path /auth/* /tasks /tasks/*
+	}
+
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		root * /usr/share/caddy
+		try_files {path} /index.html
+		file_server
+	}
+}

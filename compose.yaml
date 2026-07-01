@@ -1,0 +1,40 @@
+services:
+  backend:
+    image: housework-backend:local
+    build:
+      context: ./backend
+    environment:
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?Set APP_SECRET_KEY in .env}
+      DATABASE: /data/housework.sqlite3
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .env}
+      SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-2592000}
+    volumes:
+      - housework-data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  proxy:
+    image: housework-web:local
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HOUSEWORK_HTTP_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  housework-data:
